@@ -1,0 +1,436 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>투척 시뮬레이터 · 원운동 → 포물선 모델</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #10141c;
+    --panel: #161c27;
+    --panel-2: #1b2230;
+    --border: #262f3f;
+    --text: #e7e9ee;
+    --text-dim: #8b93a3;
+    --grid: #202838;
+    --live: #ffb454;
+    --confirmed: #56e0c0;
+    --danger: #ff6b6b;
+    --line: #45516a;
+  }
+  *{ box-sizing: border-box; }
+  html,body{
+    margin:0; padding:0; background:var(--bg); color:var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap{ max-width: 1180px; margin: 0 auto; padding: 28px 20px 60px; }
+
+  .eyebrow{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; letter-spacing:.14em;
+    text-transform:uppercase; color: var(--text-dim); margin:0 0 6px;
+  }
+  h1{ font-size: 24px; margin: 0 0 4px; font-weight:700; letter-spacing:-0.01em; }
+  .sub{ color: var(--text-dim); font-size: 13.5px; margin:0 0 24px; line-height:1.5; }
+
+  .grid{
+    display:grid; grid-template-columns: 340px 1fr; gap: 18px;
+  }
+  @media (max-width: 860px){ .grid{ grid-template-columns: 1fr; } }
+
+  .panel{
+    background: var(--panel); border:1px solid var(--border); border-radius:10px;
+    padding: 18px 18px 20px;
+  }
+  .panel + .panel{ margin-top: 18px; }
+
+  .seg{
+    display:flex; border:1px solid var(--border); border-radius:8px; overflow:hidden;
+    margin-bottom:16px;
+  }
+  .seg button{
+    flex:1; background:var(--panel-2); border:none; color:var(--text-dim);
+    font-family:'Inter'; font-size:12.5px; font-weight:600; padding:9px 6px; cursor:pointer;
+    transition: background .15s, color .15s;
+  }
+  .seg button.active{ background: #24304a; color: var(--text); }
+  .seg button:not(:last-child){ border-right:1px solid var(--border); }
+
+  .field{ margin-bottom: 16px; }
+  .field label{
+    display:flex; justify-content:space-between; align-items:baseline;
+    font-size:12.5px; color: var(--text-dim); margin-bottom:6px;
+    font-family:'IBM Plex Mono', monospace; letter-spacing:.02em;
+  }
+  .field label .val{ color: var(--live); font-weight:600; transition: color .15s; }
+  .field.confirmed label .val{ color: var(--confirmed); }
+
+  input[type=range]{
+    width:100%; accent-color: var(--live); height:4px; margin: 4px 0 8px;
+  }
+  .field.confirmed input[type=range]{ accent-color: var(--confirmed); }
+
+  input[type=number], select{
+    width:100%; background:var(--panel-2); border:1px solid var(--border);
+    color:var(--text); font-family:'IBM Plex Mono', monospace; font-size:13px;
+    padding:7px 9px; border-radius:6px; outline:none;
+  }
+  input[type=number]:focus, select:focus{ border-color: var(--live); }
+  .field.confirmed input[type=number]{ border-color: var(--confirmed); }
+
+  .readonly{ opacity:.7; }
+  .hint{ font-size:11px; color:var(--text-dim); margin-top:4px; }
+
+  .divider{ height:1px; background:var(--border); margin:18px 0; }
+
+  .readout{
+    display:grid; grid-template-columns: repeat(3,1fr); gap:10px; margin-top: 4px;
+  }
+  .ro-cell{
+    background: var(--panel-2); border:1px solid var(--border); border-radius:8px;
+    padding: 10px 10px 8px;
+  }
+  .ro-cell .k{ font-size:10.5px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; text-transform:uppercase; letter-spacing:.08em; }
+  .ro-cell .v{ font-family:'IBM Plex Mono',monospace; font-size:19px; font-weight:600; margin-top:3px; }
+  .ro-cell .u{ font-size:11px; color:var(--text-dim); margin-left:3px; }
+  .v.live{ color: var(--live); }
+  .v.confirmed{ color: var(--confirmed); }
+  .v.err{ color: var(--danger); font-size:14px; }
+
+  .status{
+    margin-top:12px; font-size:12.5px; font-family:'IBM Plex Mono', monospace;
+    padding:8px 10px; border-radius:6px; border:1px solid var(--border);
+    color: var(--text-dim);
+  }
+  .status.ok{ color: var(--confirmed); border-color: rgba(86,224,192,.35); background: rgba(86,224,192,.06);}
+  .status.warn{ color: var(--danger); border-color: rgba(255,107,107,.35); background: rgba(255,107,107,.06);}
+  .status.draft{ color: var(--live); border-color: rgba(255,180,84,.35); background: rgba(255,180,84,.06); }
+
+  svg{ width:100%; height:auto; display:block; }
+  .diagram-panel{ padding-top:14px; }
+  .diagram-title{ font-size:12.5px; color:var(--text-dim); font-family:'IBM Plex Mono',monospace; margin: 0 0 10px 4px; letter-spacing:.04em;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <p class="eyebrow">0차 연구 · 실시간 시뮬레이터</p>
+  <h1>투척 궤적 시뮬레이터</h1>
+  <p class="sub">등속 원운동으로 팔을 돌려 물체를 던질 때, 목표 지점에 정확히 떨어뜨리기 위한 각속도 · 회전 주기를 계산합니다. 입력하는 즉시 미리보기가 갱신되고(주황), <b>Enter</b>를 누르거나 슬라이더에서 손을 떼면 값이 확정됩니다(청록).</p>
+
+  <div class="grid">
+    <div>
+      <div class="panel">
+        <div class="seg" id="modeSeg">
+          <button class="active" data-mode="direct">팔길이/어깨높이 직접입력</button>
+          <button data-mode="simple">성별+키로 간편입력</button>
+        </div>
+
+        <!-- DIRECT MODE -->
+        <div id="directFields">
+          <div class="field" data-key="r">
+            <label>팔 길이 (r) <span class="val" id="rVal">0.70</span></label>
+            <input type="range" id="rRange" min="0.10" max="1.20" step="0.01" value="0.70">
+            <input type="number" id="rNum" min="0.10" max="1.20" step="0.01" value="0.70">
+          </div>
+          <div class="field" data-key="h">
+            <label>어깨 높이 (h) <span class="val" id="hVal">0.70</span></label>
+            <input type="range" id="hRange" min="0.10" max="2.00" step="0.01" value="0.70">
+            <input type="number" id="hNum" min="0.10" max="2.00" step="0.01" value="0.70">
+          </div>
+        </div>
+
+        <!-- SIMPLE MODE -->
+        <div id="simpleFields" style="display:none;">
+          <div class="field">
+            <label>성별</label>
+            <select id="genderSel">
+              <option value="male">남성</option>
+              <option value="female">여성</option>
+            </select>
+          </div>
+          <div class="field" data-key="height">
+            <label>키 (cm) <span class="val" id="heightVal">170</span></label>
+            <input type="range" id="heightRange" min="140" max="200" step="1" value="170">
+            <input type="number" id="heightNum" min="140" max="200" step="1" value="170">
+            <div class="hint">추정치: 팔길이 ≈ 키×0.44, 어깨높이 ≈ 키×0.82 (개인차 있음)</div>
+          </div>
+          <div class="readonly" style="display:flex; gap:10px; font-family:'IBM Plex Mono',monospace; font-size:12px; color:var(--text-dim);">
+            <span>r ≈ <b id="rDerived" style="color:var(--text)">0.75</b> m</span>
+            <span>h ≈ <b id="hDerived" style="color:var(--text)">1.39</b> m</span>
+          </div>
+        </div>
+
+        <div class="divider"></div>
+
+        <div class="field" data-key="alpha">
+          <label>투척각 (α) <span class="val" id="alphaVal">0°</span></label>
+          <input type="range" id="alphaRange" min="-85" max="85" step="1" value="0">
+          <input type="number" id="alphaNum" min="-85" max="85" step="1" value="0">
+          <div class="hint">수평 = 0°, 위로 던질수록 +, 아래로 던질수록 −</div>
+        </div>
+
+        <div class="field" data-key="d">
+          <label>낙하지점 (d, 목표거리) <span class="val" id="dVal">0.70</span></label>
+          <input type="range" id="dRange" min="0.10" max="6.00" step="0.01" value="0.70">
+          <input type="number" id="dNum" min="0.10" max="6.00" step="0.01" value="0.70">
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="diagram-title" style="margin:0 0 10px;">계산 결과</div>
+        <div class="readout">
+          <div class="ro-cell"><div class="k">속력 v</div><div class="v" id="vOut">—</div></div>
+          <div class="ro-cell"><div class="k">각속도 ω</div><div class="v" id="wOut">—</div></div>
+          <div class="ro-cell"><div class="k">회전 주기 T</div><div class="v" id="tOut">—</div></div>
+        </div>
+        <div class="status draft" id="statusBox">값을 입력하면 실시간으로 계산됩니다.</div>
+      </div>
+    </div>
+
+    <div class="panel diagram-panel">
+      <div class="diagram-title">인간 모형 · 투척 지점 모형 · 포물선 모형</div>
+      <svg id="scene" viewBox="0 0 720 460" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <marker id="arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto" markerUnits="strokeWidth">
+            <path d="M0,0 L0,6 L7,3 z" fill="var(--live)" id="arrowFill"></path>
+          </marker>
+        </defs>
+        <g id="sceneRoot"></g>
+      </svg>
+    </div>
+  </div>
+</div>
+
+<script>
+const g = 9.8;
+const RATIOS = { male: {shoulder:0.818, arm:0.44}, female: {shoulder:0.803, arm:0.43} };
+
+const state = {
+  mode: 'direct',
+  gender: 'male',
+  heightCm: 170,
+  r: 0.70,
+  h: 0.70,
+  alphaDeg: 0,
+  d: 0.70,
+  confirmed: false
+};
+
+// ---------- element refs ----------
+const el = id => document.getElementById(id);
+const rRange=el('rRange'), rNum=el('rNum'), rVal=el('rVal');
+const hRange=el('hRange'), hNum=el('hNum'), hVal=el('hVal');
+const alphaRange=el('alphaRange'), alphaNum=el('alphaNum'), alphaVal=el('alphaVal');
+const dRange=el('dRange'), dNum=el('dNum'), dVal=el('dVal');
+const heightRange=el('heightRange'), heightNum=el('heightNum'), heightVal=el('heightVal');
+const genderSel=el('genderSel');
+const rDerived=el('rDerived'), hDerived=el('hDerived');
+const vOut=el('vOut'), wOut=el('wOut'), tOut=el('tOut'), statusBox=el('statusBox');
+const sceneRoot=el('sceneRoot');
+const directFields=el('directFields'), simpleFields=el('simpleFields');
+
+// ---------- mode toggle ----------
+document.getElementById('modeSeg').addEventListener('click', e=>{
+  const btn = e.target.closest('button'); if(!btn) return;
+  document.querySelectorAll('#modeSeg button').forEach(b=>b.classList.remove('active'));
+  btn.classList.add('active');
+  state.mode = btn.dataset.mode;
+  directFields.style.display = state.mode === 'direct' ? '' : 'none';
+  simpleFields.style.display = state.mode === 'simple' ? '' : 'none';
+  markDraft();
+  syncSimpleDerived();
+  update(false);
+});
+
+// ---------- generic slider<->number sync ----------
+function pair(rangeEl, numEl, key, labelEl, suffix, decimals){
+  const onLive = (v)=>{
+    state[key] = v;
+    if(labelEl) labelEl.textContent = (decimals!=null? v.toFixed(decimals): v) + (suffix||'');
+    markDraft();
+    update(false);
+  };
+  rangeEl.addEventListener('input', ()=>{ numEl.value = rangeEl.value; onLive(parseFloat(rangeEl.value)); });
+  rangeEl.addEventListener('change', ()=>{ confirmNow(); });
+  numEl.addEventListener('input', ()=>{ rangeEl.value = numEl.value; onLive(parseFloat(numEl.value)||0); });
+  numEl.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ e.preventDefault(); confirmNow(); } });
+}
+pair(rRange, rNum, 'r', rVal, '', 2);
+pair(hRange, hNum, 'h', hVal, '', 2);
+pair(alphaRange, alphaNum, 'alphaDeg', alphaVal, '°', 0);
+pair(dRange, dNum, 'd', dVal, '', 2);
+
+heightRange.addEventListener('input', ()=>{ heightNum.value=heightRange.value; state.heightCm=+heightRange.value; heightVal.textContent=heightRange.value; markDraft(); syncSimpleDerived(); update(false); });
+heightRange.addEventListener('change', ()=>{ confirmNow(); });
+heightNum.addEventListener('input', ()=>{ heightRange.value=heightNum.value; state.heightCm=+heightNum.value||170; heightVal.textContent=heightNum.value; markDraft(); syncSimpleDerived(); update(false); });
+heightNum.addEventListener('keydown', e=>{ if(e.key==='Enter'){ e.preventDefault(); confirmNow(); } });
+genderSel.addEventListener('change', ()=>{ state.gender=genderSel.value; markDraft(); syncSimpleDerived(); update(false); });
+
+function syncSimpleDerived(){
+  const ratio = RATIOS[state.gender];
+  const r = +(state.heightCm/100 * ratio.arm).toFixed(3);
+  const h = +(state.heightCm/100 * ratio.shoulder).toFixed(3);
+  rDerived.textContent = r.toFixed(2);
+  hDerived.textContent = h.toFixed(2);
+}
+
+function markDraft(){
+  state.confirmed = false;
+  document.querySelectorAll('.field').forEach(f=>f.classList.remove('confirmed'));
+  vOut.classList.remove('confirmed'); wOut.classList.remove('confirmed'); tOut.classList.remove('confirmed');
+  vOut.classList.add('live'); wOut.classList.add('live'); tOut.classList.add('live');
+  el('arrowFill').setAttribute('fill','var(--live)');
+}
+function confirmNow(){
+  state.confirmed = true;
+  document.querySelectorAll('.field').forEach(f=>f.classList.add('confirmed'));
+  vOut.classList.remove('live'); wOut.classList.remove('live'); tOut.classList.remove('live');
+  vOut.classList.add('confirmed'); wOut.classList.add('confirmed'); tOut.classList.add('confirmed');
+  el('arrowFill').setAttribute('fill','var(--confirmed)');
+  update(true);
+}
+
+// ---------- physics ----------
+function compute(alphaDeg, d, r, h){
+  const a = alphaDeg * Math.PI/180;
+  const x0 = -r*Math.sin(a);
+  const y0 = h + r*Math.cos(a);
+  const dx = d - x0;
+  const cos2 = Math.cos(a)*Math.cos(a);
+  const denom = cos2 * (y0 + dx*Math.tan(a));
+  if (dx <= 0 || denom <= 0) return {ok:false, x0, y0};
+  const v2 = (0.5*g*dx*dx)/denom;
+  if (!isFinite(v2) || v2<=0) return {ok:false, x0, y0};
+  const v = Math.sqrt(v2);
+  const omega = v/r;
+  const T = 2*Math.PI/omega;
+  const t_land = dx/(v*Math.cos(a));
+  return {ok:true, x0, y0, v, omega, T, t_land};
+}
+
+// ---------- drawing ----------
+function toPxFactory(r,h,d){
+  const drawLeft=50, drawTop=20, drawW=630, drawH=380, groundY=drawTop+drawH;
+  const minXm = Math.min(-r, 0) - 0.25;
+  const maxXm = Math.max(d, r) + 0.25;
+  const maxYm = (h+r) + 0.35;
+  const scale = Math.min(drawW/(maxXm-minXm), drawH/maxYm);
+  const originXpx = drawLeft - minXm*scale;
+  function toPx(xm, ym){ return [originXpx + xm*scale, groundY - ym*scale]; }
+  return {toPx, groundY, scale, drawLeft, drawW, minXm, maxXm};
+}
+
+function svgEl(tag, attrs){
+  const n = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for(const k in attrs) n.setAttribute(k, attrs[k]);
+  return n;
+}
+
+function draw(res){
+  sceneRoot.innerHTML = '';
+  const {r,h,d} = state;
+  const {toPx, groundY, drawLeft, drawW} = toPxFactory(r,h,d);
+  const col = state.confirmed ? 'var(--confirmed)' : 'var(--live)';
+
+  // grid
+  for(let x=Math.ceil(toPxFactory(r,h,d).minXm); x<=Math.floor(toPxFactory(r,h,d).maxXm); x++){
+    const [px] = toPx(x,0);
+    sceneRoot.appendChild(svgEl('line',{x1:px,y1:20,x2:px,y2:groundY,stroke:'var(--grid)','stroke-width':1}));
+  }
+  // ground
+  sceneRoot.appendChild(svgEl('line',{x1:drawLeft-40,y1:groundY,x2:drawLeft+drawW+30,y2:groundY,stroke:'var(--line)','stroke-width':1.5}));
+  sceneRoot.appendChild(svgEl('text',{x:drawLeft-38,y:groundY-6,fill:'var(--text-dim)','font-size':10,'font-family':'IBM Plex Mono, monospace'})).textContent='0m (지면)';
+
+  // person stick figure at x=0
+  const [fx,fy] = toPx(0,0);
+  const [hipx,hipy] = toPx(0, h*0.48);
+  const [shx,shy] = toPx(0, h);
+  sceneRoot.appendChild(svgEl('line',{x1:fx,y1:fy,x2:fx-10,y2:fy,stroke:'var(--line)','stroke-width':3})); // feet base
+  sceneRoot.appendChild(svgEl('line',{x1:hipx,y1:hipy,x2:fx-14,y2:fy,stroke:'var(--text-dim)','stroke-width':3})); // leg1
+  sceneRoot.appendChild(svgEl('line',{x1:hipx,y1:hipy,x2:fx+8,y2:fy,stroke:'var(--text-dim)','stroke-width':3})); // leg2
+  sceneRoot.appendChild(svgEl('line',{x1:hipx,y1:hipy,x2:shx,y2:shy,stroke:'var(--text-dim)','stroke-width':4})); // torso
+  const headR = Math.max(6, toPxFactory(r,h,d).scale*0.09);
+  sceneRoot.appendChild(svgEl('circle',{cx:shx,cy:shy-headR-4,r:headR,fill:'none',stroke:'var(--text-dim)','stroke-width':3}));
+
+  // shoulder pivot
+  sceneRoot.appendChild(svgEl('circle',{cx:shx,cy:shy,r:3.5,fill:'var(--text)'}));
+  sceneRoot.appendChild(svgEl('text',{x:shx+8,y:shy-6,fill:'var(--text-dim)','font-size':10,'font-family':'IBM Plex Mono, monospace'})).textContent=`어깨 h=${h.toFixed(2)}m`;
+
+  // swing circle (dashed)
+  const scale = toPxFactory(r,h,d).scale;
+  sceneRoot.appendChild(svgEl('circle',{cx:shx,cy:shy,r:r*scale,fill:'none',stroke:col,'stroke-width':1.3,'stroke-dasharray':'4 4',opacity:0.55}));
+
+  if(res.ok){
+    const [rx,ry] = toPx(res.x0, res.y0);
+    // arm
+    sceneRoot.appendChild(svgEl('line',{x1:shx,y1:shy,x2:rx,y2:ry,stroke:col,'stroke-width':2.5}));
+    // release point
+    sceneRoot.appendChild(svgEl('circle',{cx:rx,cy:ry,r:5,fill:col}));
+    sceneRoot.appendChild(svgEl('text',{x:rx+8,y:ry-8,fill:col,'font-size':10.5,'font-family':'IBM Plex Mono, monospace','font-weight':600})).textContent=`릴리즈 (α=${state.alphaDeg}°)`;
+
+    // velocity arrow (fixed physical length 0.35m for legibility)
+    const a = state.alphaDeg*Math.PI/180;
+    const ex = res.x0 + 0.4*Math.cos(a), ey = res.y0 + 0.4*Math.sin(a);
+    const [ax,ay] = toPx(ex,ey);
+    sceneRoot.appendChild(svgEl('line',{x1:rx,y1:ry,x2:ax,y2:ay,stroke:col,'stroke-width':2.2,'marker-end':'url(#arrowhead)'}));
+    sceneRoot.appendChild(svgEl('text',{x:ax+6,y:ay,fill:col,'font-size':10,'font-family':'IBM Plex Mono, monospace'})).textContent='v';
+
+    // trajectory
+    const N=32; let pts=[];
+    for(let i=0;i<=N;i++){
+      const t = res.t_land*i/N;
+      const xm = res.x0 + res.v*Math.cos(a)*t;
+      const ym = res.y0 + res.v*Math.sin(a)*t - 0.5*g*t*t;
+      pts.push(toPx(xm,ym));
+    }
+    sceneRoot.appendChild(svgEl('polyline',{points:pts.map(p=>p.join(',')).join(' '),fill:'none',stroke:col,'stroke-width':2, 'stroke-dasharray': state.confirmed?'':'5 4'}));
+
+    // landing marker
+    const [lx,ly] = toPx(state.d,0);
+    sceneRoot.appendChild(svgEl('line',{x1:lx-7,y1:ly-14,x2:lx+7,y2:ly-14,stroke:col,'stroke-width':2}));
+    sceneRoot.appendChild(svgEl('line',{x1:lx,y1:ly-14,x2:lx,y2:ly,stroke:col,'stroke-width':2}));
+    sceneRoot.appendChild(svgEl('text',{x:lx+9,y:ly-10,fill:col,'font-size':10.5,'font-family':'IBM Plex Mono, monospace','font-weight':600})).textContent=`목표 d=${state.d.toFixed(2)}m`;
+  } else {
+    sceneRoot.appendChild(svgEl('text',{x:drawLeft, y:35, fill:'var(--danger)','font-size':12,'font-family':'IBM Plex Mono, monospace'})).textContent = '이 조합으로는 목표 지점에 도달할 수 없습니다 (각도/거리 확인)';
+  }
+}
+
+function update(isConfirm){
+  let r=state.r, h=state.h;
+  if(state.mode==='simple'){
+    const ratio = RATIOS[state.gender];
+    r = +(state.heightCm/100 * ratio.arm).toFixed(3);
+    h = +(state.heightCm/100 * ratio.shoulder).toFixed(3);
+    state.r=r; state.h=h;
+  }
+  const res = compute(state.alphaDeg, state.d, r, h);
+  draw(res);
+
+  if(res.ok){
+    vOut.textContent = res.v.toFixed(2)+'<span class="u">m/s</span>';
+    wOut.textContent = res.omega.toFixed(2)+'<span class="u">rad/s</span>';
+    tOut.textContent = res.T.toFixed(2)+'<span class="u">s/회전</span>';
+    vOut.innerHTML = res.v.toFixed(2)+' <span class="u">m/s</span>';
+    wOut.innerHTML = res.omega.toFixed(2)+' <span class="u">rad/s</span>';
+    tOut.innerHTML = res.T.toFixed(2)+' <span class="u">s/회전</span>';
+    if(state.confirmed){
+      statusBox.className='status ok';
+      statusBox.textContent = `확정됨 — 약 ${res.T.toFixed(2)}초당 1회전으로 팔을 돌리면 ${state.d.toFixed(2)}m 지점에 떨어집니다.`;
+    } else {
+      statusBox.className='status draft';
+      statusBox.textContent = '실시간 미리보기 (Enter 또는 슬라이더에서 손을 떼면 확정)';
+    }
+  } else {
+    vOut.innerHTML = wOut.innerHTML = tOut.innerHTML = '<span class="err">—</span>';
+    statusBox.className='status warn';
+    statusBox.textContent = '도달 불가능한 조합입니다. 투척각·낙하지점·팔길이·어깨높이를 조정해보세요.';
+  }
+}
+
+syncSimpleDerived();
+update(false);
+</script>
+</body>
+</html>
